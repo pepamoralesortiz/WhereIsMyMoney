@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { money, ORDEN_TIPOS, TIPOS_CUENTA_LABEL, type TipoCuenta } from "@/lib/finance";
+import { money, BASE_MONEDA, type TipoCuenta } from "@/lib/finance";
 
 type SaldoRow = {
   cuenta_id: string;
@@ -8,6 +8,7 @@ type SaldoRow = {
   tipo: TipoCuenta;
   moneda: string;
   saldo: number;
+  saldo_base: number;
   archivada: boolean;
 };
 
@@ -16,8 +17,9 @@ type PvrRow = {
   nombre: string;
   presupuesto: number;
   monto_real: number;
-  diferencia: number;
 };
+
+type ErRow = { tipo: "ingreso" | "gasto"; nombre: string; monto: number };
 
 function nombreMes(anio: number, mes: number) {
   return new Intl.DateTimeFormat("es", { month: "long", year: "numeric" }).format(
@@ -31,17 +33,19 @@ export default async function DashboardPage() {
   const anio = now.getUTCFullYear();
   const mes = now.getUTCMonth() + 1;
 
-  const [saldosRes, pvrRes] = await Promise.all([
+  const [saldosRes, pvrRes, erRes] = await Promise.all([
     supabase
       .from("v_saldos")
-      .select("cuenta_id, nombre, tipo, moneda, saldo, archivada")
+      .select("cuenta_id, nombre, tipo, moneda, saldo, saldo_base, archivada")
       .eq("archivada", false)
-      .order("tipo")
       .order("nombre"),
     supabase.rpc("presupuesto_vs_real", { p_anio: anio, p_mes: mes }),
+    supabase.rpc("estado_resultados", { p_anio: anio, p_mes: mes }),
   ]);
 
   const rows = (saldosRes.data ?? []) as SaldoRow[];
+
+  // --- Presupuesto (top) ---
   const pvr = ((pvrRes.data ?? []) as PvrRow[])
     .map((r) => ({
       ...r,
@@ -49,18 +53,39 @@ export default async function DashboardPage() {
       monto_real: Number(r.monto_real),
     }))
     .filter((r) => r.presupuesto > 0)
-    .sort((a, b) => b.monto_real / (b.presupuesto || 1) - a.monto_real / (a.presupuesto || 1));
-
+    .sort(
+      (a, b) => b.monto_real / (b.presupuesto || 1) - a.monto_real / (a.presupuesto || 1),
+    );
   const totalPres = pvr.reduce((s, r) => s + r.presupuesto, 0);
   const totalReal = pvr.reduce((s, r) => s + r.monto_real, 0);
   const pctTotal = totalPres > 0 ? Math.round((totalReal / totalPres) * 100) : 0;
 
-  const grupos = new Map<TipoCuenta, SaldoRow[]>();
-  for (const r of rows) {
-    if (!grupos.has(r.tipo)) grupos.set(r.tipo, []);
-    grupos.get(r.tipo)!.push(r);
-  }
-  const tipos = ORDEN_TIPOS.filter((t) => grupos.has(t));
+  // --- Estado de resultados (mes) ---
+  const er = (erRes.data ?? []) as ErRow[];
+  const ingresos = er
+    .filter((r) => r.tipo === "ingreso")
+    .reduce((s, r) => s + Number(r.monto), 0);
+  const gastos = er
+    .filter((r) => r.tipo === "gasto")
+    .reduce((s, r) => s + Number(r.monto), 0);
+  const resultado = ingresos - gastos;
+
+  // --- Balance general (hoy), consolidado en GTQ ---
+  const porTipo = (t: TipoCuenta) => rows.filter((r) => r.tipo === t);
+  const totalBase = (t: TipoCuenta) =>
+    porTipo(t).reduce((s, r) => s + Number(r.saldo_base), 0);
+  const totActivos = totalBase("activo");
+  const totPasivos = totalBase("pasivo");
+  const totPatrimonio = totalBase("patrimonio");
+  const patrimonioNeto = totActivos - totPasivos;
+
+  const secciones: { tipo: TipoCuenta; label: string; total: number }[] = (
+    [
+      { tipo: "activo", label: "Activos", total: totActivos },
+      { tipo: "pasivo", label: "Pasivos", total: totPasivos },
+      { tipo: "patrimonio", label: "Patrimonio", total: totPatrimonio },
+    ] as { tipo: TipoCuenta; label: string; total: number }[]
+  ).filter((s) => porTipo(s.tipo).length > 0);
 
   return (
     <main>
@@ -83,10 +108,7 @@ export default async function DashboardPage() {
               {nombreMes(anio, mes)}
             </span>
           </h2>
-          <Link
-            href="/presupuesto"
-            className="text-xs text-teal-600 dark:text-teal-400"
-          >
+          <Link href="/presupuesto" className="text-xs text-teal-600 dark:text-teal-400">
             Editar
           </Link>
         </div>
@@ -100,7 +122,6 @@ export default async function DashboardPage() {
           </p>
         ) : (
           <>
-            {/* Total */}
             <div className="mb-1 flex items-baseline justify-between">
               <span className="text-sm text-neutral-500">Gastado</span>
               <span className="text-sm font-medium tabular-nums">
@@ -122,7 +143,6 @@ export default async function DashboardPage() {
                 : ` · queda ${money(totalPres - totalReal)}`}
             </p>
 
-            {/* Por rubro */}
             <ul className="space-y-3">
               {pvr.map((r) => {
                 const pct =
@@ -149,14 +169,36 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* Saldos */}
-      {saldosRes.error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-          Error al leer v_saldos: {saldosRes.error.message}
-        </p>
-      )}
+      {/* Estado de resultados (mes) */}
+      <section className="mb-6 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+        <h2 className="mb-3 text-sm font-semibold">
+          Estado de resultados ·{" "}
+          <span className="font-normal capitalize text-neutral-500">
+            {nombreMes(anio, mes)}
+          </span>
+        </h2>
+        <dl className="space-y-1.5 text-sm">
+          <Fila label="Ingresos" valor={money(ingresos)} />
+          <Fila label="Gastos" valor={`- ${money(gastos)}`} />
+          <div className="mt-1 flex items-center justify-between border-t border-neutral-200 pt-2 font-semibold dark:border-neutral-800">
+            <span>Resultado</span>
+            <span
+              className={`tabular-nums ${
+                resultado < 0 ? "text-red-600 dark:text-red-400" : "text-teal-600 dark:text-teal-400"
+              }`}
+            >
+              {money(resultado)}
+            </span>
+          </div>
+        </dl>
+      </section>
 
-      {!saldosRes.error && rows.length === 0 && (
+      {/* Balance general (hoy) */}
+      {saldosRes.error ? (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          Error al leer saldos: {saldosRes.error.message}
+        </p>
+      ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-neutral-300 px-4 py-10 text-center dark:border-neutral-700">
           <p className="text-sm text-neutral-500">Aún no tienes cuentas.</p>
           <Link
@@ -166,48 +208,73 @@ export default async function DashboardPage() {
             Crear tu primera cuenta
           </Link>
         </div>
-      )}
+      ) : (
+        <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+          <h2 className="mb-3 text-sm font-semibold">Balance general · hoy</h2>
 
-      <div className="space-y-6">
-        {tipos.map((tipo) => (
-          <section key={tipo}>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              {TIPOS_CUENTA_LABEL[tipo]}
-            </h2>
-            <ul className="divide-y divide-neutral-200 overflow-hidden rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
-              {grupos.get(tipo)!.map((r) => (
-                <li
-                  key={r.cuenta_id}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <span className="text-sm">{r.nombre}</span>
-                  <span
-                    className={`text-sm font-medium tabular-nums ${
-                      r.saldo < 0 ? "text-red-600 dark:text-red-400" : ""
-                    }`}
-                  >
-                    {money(Number(r.saldo), r.moneda)}
+          <div className="space-y-4">
+            {secciones.map((sec) => (
+              <div key={sec.tipo}>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                    {sec.label}
                   </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {money(sec.total)}
+                  </span>
+                </div>
+                <dl className="space-y-1 border-l-2 border-neutral-100 pl-3 dark:border-neutral-800">
+                  {porTipo(sec.tipo).map((r) => (
+                    <div
+                      key={r.cuenta_id}
+                      className="flex items-center justify-between text-sm text-neutral-600 dark:text-neutral-300"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{r.nombre}</span>
+                      <span className="tabular-nums">
+                        {money(Number(r.saldo_base))}
+                        {r.moneda !== BASE_MONEDA && (
+                          <span className="text-neutral-400">
+                            {" "}
+                            ({money(Number(r.saldo), r.moneda)})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-neutral-200 pt-3 dark:border-neutral-800">
+            <span className="text-sm font-semibold">Patrimonio neto</span>
+            <span
+              className={`text-base font-semibold tabular-nums ${
+                patrimonioNeto < 0 ? "text-red-600 dark:text-red-400" : ""
+              }`}
+            >
+              {money(patrimonioNeto)}
+            </span>
+          </div>
+          <p className="mt-1 text-right text-[11px] text-neutral-400">
+            Activos − Pasivos · consolidado en {BASE_MONEDA}
+          </p>
+        </section>
+      )}
     </main>
   );
 }
 
-// Barra de progreso simple (gráfico) para el presupuesto.
-function Barra({
-  pct,
-  over,
-  alto,
-}: {
-  pct: number;
-  over: boolean;
-  alto?: boolean;
-}) {
+function Fila({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-neutral-500">{label}</span>
+      <span className="tabular-nums">{valor}</span>
+    </div>
+  );
+}
+
+function Barra({ pct, over, alto }: { pct: number; over: boolean; alto?: boolean }) {
   const width = Math.min(100, Math.max(0, pct));
   return (
     <div
@@ -216,9 +283,7 @@ function Barra({
       }`}
     >
       <div
-        className={`h-full rounded-full ${
-          over ? "bg-red-500" : "bg-teal-500"
-        }`}
+        className={`h-full rounded-full ${over ? "bg-red-500" : "bg-teal-500"}`}
         style={{ width: `${width}%` }}
       />
     </div>
