@@ -142,16 +142,19 @@ export default async function DashboardPage({
                 const pct = r.presupuesto > 0 ? Math.round((r.monto_real / r.presupuesto) * 100) : 0;
                 return (
                   <li key={r.cuenta_id}>
-                    <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm">{r.nombre}</span>
-                      <span className="text-xs tabular-nums text-neutral-500">
-                        {money(r.monto_real)} / {money(r.presupuesto)}{" "}
-                        <span className={`font-medium ${textColor(pct)}`}>
-                          {pct}%
+                    <Link
+                      href={`/gastos/${r.cuenta_id}?anio=${anio}&mes=${mes}`}
+                      className="-mx-1 block rounded-lg px-1 py-0.5 transition active:bg-neutral-50 dark:active:bg-neutral-900"
+                    >
+                      <div className="mb-1 flex items-baseline justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm">{r.nombre}</span>
+                        <span className="text-xs tabular-nums text-neutral-500">
+                          {money(r.monto_real)} / {money(r.presupuesto)}{" "}
+                          <span className={`font-medium ${textColor(pct)}`}>{pct}%</span>
                         </span>
-                      </span>
-                    </div>
-                    <Barra pct={pct} />
+                      </div>
+                      <Barra pct={pct} />
+                    </Link>
                   </li>
                 );
               })}
