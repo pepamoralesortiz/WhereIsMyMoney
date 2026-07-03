@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const items = [
   { href: "/dashboard", label: "Inicio" },
   { href: "/cuentas", label: "Cuentas" },
+  { href: "/categorias", label: "Categorías" },
   { href: "/movimientos", label: "Movimientos" },
 ];
 
@@ -22,7 +23,7 @@ export default function Nav() {
             <Link
               key={it.href}
               href={it.href}
-              className={`flex-1 py-3 text-center text-sm font-medium transition ${
+              className={`flex-1 px-1 py-3 text-center text-xs font-medium transition ${
                 active
                   ? "text-teal-600 dark:text-teal-400"
                   : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
