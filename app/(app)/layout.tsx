@@ -34,7 +34,10 @@ export default async function AppLayout({
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-md flex-1 px-4 py-5">{children}</div>
+      {/* pb-24 deja espacio para la barra fija inferior */}
+      <div className="mx-auto w-full max-w-md flex-1 px-4 pb-24 pt-5">
+        {children}
+      </div>
 
       <Nav />
     </div>
