@@ -44,7 +44,7 @@ export default async function DashboardPage({
   const pvr = ((pvrRes.data ?? []) as PvrRow[])
     .map((r) => ({ ...r, presupuesto: Number(r.presupuesto), monto_real: Number(r.monto_real) }))
     .filter((r) => r.presupuesto > 0)
-    .sort((a, b) => b.monto_real / (b.presupuesto || 1) - a.monto_real / (a.presupuesto || 1));
+    .sort((a, b) => b.monto_real - a.monto_real);
   const totalPres = pvr.reduce((s, r) => s + r.presupuesto, 0);
   const totalReal = pvr.reduce((s, r) => s + r.monto_real, 0);
   const pctTotal = totalPres > 0 ? Math.round((totalReal / totalPres) * 100) : 0;
