@@ -1,24 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { money, BASE_MONEDA, type TipoCuenta } from "@/lib/finance";
+import { money, type TipoCuenta } from "@/lib/finance";
 
-type SaldoRow = {
-  cuenta_id: string;
-  nombre: string;
-  tipo: TipoCuenta;
-  moneda: string;
-  saldo: number;
-  saldo_base: number;
-  archivada: boolean;
-};
-
-type PvrRow = {
-  cuenta_id: string;
-  nombre: string;
-  presupuesto: number;
-  monto_real: number;
-};
-
+type BgRow = { tipo: TipoCuenta; cuenta_id: string; nombre: string; saldo: number };
+type PvrRow = { cuenta_id: string; nombre: string; presupuesto: number; monto_real: number };
 type ErRow = { tipo: "ingreso" | "gasto"; nombre: string; monto: number };
 
 function nombreMes(anio: number, mes: number) {
@@ -26,60 +11,59 @@ function nombreMes(anio: number, mes: number) {
     new Date(anio, mes - 1, 1),
   );
 }
+const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
-export default async function DashboardPage() {
-  const supabase = await createClient();
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ anio?: string; mes?: string }>;
+}) {
+  const sp = await searchParams;
   const now = new Date();
-  const anio = now.getUTCFullYear();
-  const mes = now.getUTCMonth() + 1;
+  const anioActual = now.getUTCFullYear();
+  const mesActual = now.getUTCMonth() + 1;
+  const anio = Number(sp.anio) || anioActual;
+  const mes = Number(sp.mes) || mesActual;
 
-  const [saldosRes, pvrRes, erRes] = await Promise.all([
-    supabase
-      .from("v_saldos")
-      .select("cuenta_id, nombre, tipo, moneda, saldo, saldo_base, archivada")
-      .eq("archivada", false)
-      .order("nombre"),
+  const esMesActual = anio === anioActual && mes === mesActual;
+  const fechaCorte = esMesActual
+    ? fmt(now)
+    : fmt(new Date(Date.UTC(anio, mes, 0))); // último día del mes
+
+  const prev = mes === 1 ? { anio: anio - 1, mes: 12 } : { anio, mes: mes - 1 };
+  const next = mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 };
+
+  const supabase = await createClient();
+  const [pvrRes, erRes, bgRes] = await Promise.all([
     supabase.rpc("presupuesto_vs_real", { p_anio: anio, p_mes: mes }),
     supabase.rpc("estado_resultados", { p_anio: anio, p_mes: mes }),
+    supabase.rpc("balance_general", { p_fecha: fechaCorte }),
   ]);
 
-  const rows = (saldosRes.data ?? []) as SaldoRow[];
-
-  // --- Presupuesto (top) ---
+  // Presupuesto
   const pvr = ((pvrRes.data ?? []) as PvrRow[])
-    .map((r) => ({
-      ...r,
-      presupuesto: Number(r.presupuesto),
-      monto_real: Number(r.monto_real),
-    }))
+    .map((r) => ({ ...r, presupuesto: Number(r.presupuesto), monto_real: Number(r.monto_real) }))
     .filter((r) => r.presupuesto > 0)
-    .sort(
-      (a, b) => b.monto_real / (b.presupuesto || 1) - a.monto_real / (a.presupuesto || 1),
-    );
+    .sort((a, b) => b.monto_real / (b.presupuesto || 1) - a.monto_real / (a.presupuesto || 1));
   const totalPres = pvr.reduce((s, r) => s + r.presupuesto, 0);
   const totalReal = pvr.reduce((s, r) => s + r.monto_real, 0);
   const pctTotal = totalPres > 0 ? Math.round((totalReal / totalPres) * 100) : 0;
 
-  // --- Estado de resultados (mes) ---
+  // Estado de resultados
   const er = (erRes.data ?? []) as ErRow[];
-  const ingresos = er
-    .filter((r) => r.tipo === "ingreso")
-    .reduce((s, r) => s + Number(r.monto), 0);
-  const gastos = er
-    .filter((r) => r.tipo === "gasto")
-    .reduce((s, r) => s + Number(r.monto), 0);
+  const ingresos = er.filter((r) => r.tipo === "ingreso").reduce((s, r) => s + Number(r.monto), 0);
+  const gastos = er.filter((r) => r.tipo === "gasto").reduce((s, r) => s + Number(r.monto), 0);
   const resultado = ingresos - gastos;
 
-  // --- Balance general (hoy), consolidado en GTQ ---
-  const porTipo = (t: TipoCuenta) => rows.filter((r) => r.tipo === t);
-  const totalBase = (t: TipoCuenta) =>
-    porTipo(t).reduce((s, r) => s + Number(r.saldo_base), 0);
+  // Balance general (al corte)
+  const bg = (bgRes.data ?? []) as BgRow[];
+  const porTipo = (t: TipoCuenta) => bg.filter((r) => r.tipo === t);
+  const totalBase = (t: TipoCuenta) => porTipo(t).reduce((s, r) => s + Number(r.saldo), 0);
   const totActivos = totalBase("activo");
   const totPasivos = totalBase("pasivo");
   const totPatrimonio = totalBase("patrimonio");
   const patrimonioNeto = totActivos - totPasivos;
-
-  const secciones: { tipo: TipoCuenta; label: string; total: number }[] = (
+  const secciones = (
     [
       { tipo: "activo", label: "Activos", total: totActivos },
       { tipo: "pasivo", label: "Pasivos", total: totPasivos },
@@ -87,9 +71,11 @@ export default async function DashboardPage() {
     ] as { tipo: TipoCuenta; label: string; total: number }[]
   ).filter((s) => porTipo(s.tipo).length > 0);
 
+  const hayCuentas = bg.length > 0;
+
   return (
     <main>
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <h1 className="text-xl font-semibold tracking-tight">Inicio</h1>
         <Link
           href="/movimientos/nuevo"
@@ -99,15 +85,31 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
+      {/* Selector de mes */}
+      <div className="mb-5 flex items-center justify-between">
+        <Link
+          href={`/dashboard?anio=${prev.anio}&mes=${prev.mes}`}
+          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
+        >
+          ‹
+        </Link>
+        <span className="text-sm font-medium capitalize">{nombreMes(anio, mes)}</span>
+        {esMesActual ? (
+          <span className="px-3 py-1.5 text-sm text-neutral-300">›</span>
+        ) : (
+          <Link
+            href={`/dashboard?anio=${next.anio}&mes=${next.mes}`}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700"
+          >
+            ›
+          </Link>
+        )}
+      </div>
+
       {/* Presupuesto del mes */}
       <section className="mb-6 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">
-            Presupuesto ·{" "}
-            <span className="font-normal capitalize text-neutral-500">
-              {nombreMes(anio, mes)}
-            </span>
-          </h2>
+          <h2 className="text-sm font-semibold">Presupuesto vs gasto</h2>
           <Link href="/presupuesto" className="text-xs text-teal-600 dark:text-teal-400">
             Editar
           </Link>
@@ -115,9 +117,9 @@ export default async function DashboardPage() {
 
         {totalPres === 0 ? (
           <p className="text-sm text-neutral-500">
-            Aún no defines presupuesto este mes.{" "}
+            Sin presupuesto este mes.{" "}
             <Link href="/presupuesto" className="text-teal-600 underline dark:text-teal-400">
-              Definir ahora
+              Definir
             </Link>
           </p>
         ) : (
@@ -125,42 +127,32 @@ export default async function DashboardPage() {
             <div className="mb-1 flex items-baseline justify-between">
               <span className="text-sm text-neutral-500">Gastado</span>
               <span className="text-sm font-medium tabular-nums">
-                {money(totalReal)}{" "}
-                <span className="text-neutral-400">/ {money(totalPres)}</span>
+                {money(totalReal)} <span className="text-neutral-400">/ {money(totalPres)}</span>
               </span>
             </div>
             <Barra pct={pctTotal} over={totalReal > totalPres} alto />
             <p
               className={`mb-4 mt-1 text-right text-xs ${
-                totalReal > totalPres
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-neutral-400"
+                totalReal > totalPres ? "text-red-600 dark:text-red-400" : "text-neutral-400"
               }`}
             >
-              {pctTotal}% del presupuesto
+              {pctTotal}%{" "}
               {totalReal > totalPres
-                ? ` · te pasaste ${money(totalReal - totalPres)}`
-                : ` · queda ${money(totalPres - totalReal)}`}
+                ? `· te pasaste ${money(totalReal - totalPres)}`
+                : `· queda ${money(totalPres - totalReal)}`}
             </p>
-
             <ul className="space-y-3">
               {pvr.map((r) => {
-                const pct =
-                  r.presupuesto > 0
-                    ? Math.round((r.monto_real / r.presupuesto) * 100)
-                    : 0;
-                const over = r.monto_real > r.presupuesto;
+                const pct = r.presupuesto > 0 ? Math.round((r.monto_real / r.presupuesto) * 100) : 0;
                 return (
                   <li key={r.cuenta_id}>
                     <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate text-sm">
-                        {r.nombre}
-                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm">{r.nombre}</span>
                       <span className="text-xs tabular-nums text-neutral-500">
                         {money(r.monto_real)} / {money(r.presupuesto)}
                       </span>
                     </div>
-                    <Barra pct={pct} over={over} />
+                    <Barra pct={pct} over={r.monto_real > r.presupuesto} />
                   </li>
                 );
               })}
@@ -169,14 +161,14 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      {/* Estado de resultados (mes) */}
+      {/* Estado de resultados */}
       <section className="mb-6 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <h2 className="mb-3 text-sm font-semibold">
-          Estado de resultados ·{" "}
-          <span className="font-normal capitalize text-neutral-500">
-            {nombreMes(anio, mes)}
-          </span>
-        </h2>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Estado de resultados</h2>
+          <Link href="/informes" className="text-xs text-teal-600 dark:text-teal-400">
+            Ver informes
+          </Link>
+        </div>
         <dl className="space-y-1.5 text-sm">
           <Fila label="Ingresos" valor={money(ingresos)} />
           <Fila label="Gastos" valor={`- ${money(gastos)}`} />
@@ -193,25 +185,26 @@ export default async function DashboardPage() {
         </dl>
       </section>
 
-      {/* Balance general (hoy) */}
-      {saldosRes.error ? (
+      {/* Balance general */}
+      {bgRes.error ? (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-          Error al leer saldos: {saldosRes.error.message}
+          {bgRes.error.message}
         </p>
-      ) : rows.length === 0 ? (
+      ) : !hayCuentas ? (
         <div className="rounded-xl border border-dashed border-neutral-300 px-4 py-10 text-center dark:border-neutral-700">
           <p className="text-sm text-neutral-500">Aún no tienes cuentas.</p>
-          <Link
-            href="/cuentas/nueva"
-            className="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white"
-          >
+          <Link href="/cuentas/nueva" className="mt-3 inline-block rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white">
             Crear tu primera cuenta
           </Link>
         </div>
       ) : (
         <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-          <h2 className="mb-3 text-sm font-semibold">Balance general · hoy</h2>
-
+          <h2 className="mb-3 text-sm font-semibold">
+            Balance general ·{" "}
+            <span className="font-normal text-neutral-500">
+              {esMesActual ? "hoy" : `al ${fechaCorte}`}
+            </span>
+          </h2>
           <div className="space-y-4">
             {secciones.map((sec) => (
               <div key={sec.tipo}>
@@ -219,9 +212,7 @@ export default async function DashboardPage() {
                   <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
                     {sec.label}
                   </span>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {money(sec.total)}
-                  </span>
+                  <span className="text-sm font-semibold tabular-nums">{money(sec.total)}</span>
                 </div>
                 <dl className="space-y-1 border-l-2 border-neutral-100 pl-3 dark:border-neutral-800">
                   {porTipo(sec.tipo).map((r) => (
@@ -230,22 +221,13 @@ export default async function DashboardPage() {
                       className="flex items-center justify-between text-sm text-neutral-600 dark:text-neutral-300"
                     >
                       <span className="min-w-0 flex-1 truncate">{r.nombre}</span>
-                      <span className="tabular-nums">
-                        {money(Number(r.saldo_base))}
-                        {r.moneda !== BASE_MONEDA && (
-                          <span className="text-neutral-400">
-                            {" "}
-                            ({money(Number(r.saldo), r.moneda)})
-                          </span>
-                        )}
-                      </span>
+                      <span className="tabular-nums">{money(Number(r.saldo))}</span>
                     </div>
                   ))}
                 </dl>
               </div>
             ))}
           </div>
-
           <div className="mt-4 flex items-center justify-between border-t border-neutral-200 pt-3 dark:border-neutral-800">
             <span className="text-sm font-semibold">Patrimonio neto</span>
             <span
@@ -256,9 +238,7 @@ export default async function DashboardPage() {
               {money(patrimonioNeto)}
             </span>
           </div>
-          <p className="mt-1 text-right text-[11px] text-neutral-400">
-            Activos − Pasivos · consolidado en {BASE_MONEDA}
-          </p>
+          <p className="mt-1 text-right text-[11px] text-neutral-400">Activos − Pasivos · GTQ</p>
         </section>
       )}
     </main>

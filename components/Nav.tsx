@@ -5,10 +5,11 @@ import { usePathname } from "next/navigation";
 
 const items = [
   { href: "/dashboard", label: "Inicio", match: ["/dashboard"] },
-  { href: "/movimientos", label: "Movimientos", match: ["/movimientos"] },
+  { href: "/movimientos", label: "Movim.", match: ["/movimientos"] },
+  { href: "/informes", label: "Informes", match: ["/informes"] },
   {
     href: "/configuracion",
-    label: "Configuración",
+    label: "Config.",
     match: ["/configuracion", "/presupuesto", "/categorias", "/cuentas"],
   },
 ];
@@ -27,7 +28,7 @@ export default function Nav() {
             <Link
               key={it.href}
               href={it.href}
-              className={`flex-1 px-1 py-3 text-center text-sm font-medium transition ${
+              className={`flex-1 truncate px-1 py-3 text-center text-xs font-medium transition ${
                 active
                   ? "text-teal-600 dark:text-teal-400"
                   : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
