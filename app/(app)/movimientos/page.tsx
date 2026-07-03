@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { money } from "@/lib/finance";
+import { money, BASE_MONEDA } from "@/lib/finance";
 import { eliminarMovimiento } from "./actions";
 
 type Partida = {
   monto: number;
-  cuenta: { nombre: string; moneda: string } | null;
+  monto_base: number;
+  moneda: string;
+  cuenta: { nombre: string } | null;
 };
 type AsientoRow = {
   id: string;
@@ -20,7 +22,7 @@ export default async function MovimientosPage() {
   const { data, error } = await supabase
     .from("asientos")
     .select(
-      "id, fecha, tipo, descripcion, partidas(monto, cuenta:cuentas(nombre, moneda))",
+      "id, fecha, tipo, descripcion, partidas(monto, monto_base, moneda, cuenta:cuentas(nombre))",
     )
     .order("fecha", { ascending: false })
     .order("created_at", { ascending: false })
@@ -56,21 +58,22 @@ export default async function MovimientosPage() {
         {asientos.map((a) => {
           const pos = a.partidas.find((p) => Number(p.monto) > 0);
           const neg = a.partidas.find((p) => Number(p.monto) < 0);
-          const monto = Number(pos?.monto ?? 0);
-          const moneda = pos?.cuenta?.moneda ?? "GTQ";
+          const base = Math.abs(Number(pos?.monto_base ?? 0));
+          const foranea = a.partidas.find((p) => p.moneda !== BASE_MONEDA);
           return (
             <li key={a.id} className="flex items-center justify-between gap-2 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm">
-                  {a.descripcion || a.tipo}
-                </p>
+              <Link href={`/movimientos/${a.id}/editar`} className="min-w-0 flex-1">
+                <p className="truncate text-sm">{a.descripcion || a.tipo}</p>
                 <p className="truncate text-xs text-neutral-400">
                   {a.fecha} · {neg?.cuenta?.nombre ?? "—"} →{" "}
                   {pos?.cuenta?.nombre ?? "—"}
+                  {foranea
+                    ? ` · ${money(Math.abs(Number(foranea.monto)), foranea.moneda)}`
+                    : ""}
                 </p>
-              </div>
+              </Link>
               <span className="text-sm font-medium tabular-nums">
-                {money(monto, moneda)}
+                {money(base)}
               </span>
               <form action={eliminarMovimiento}>
                 <input type="hidden" name="id" value={a.id} />

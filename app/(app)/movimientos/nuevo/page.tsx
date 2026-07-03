@@ -2,16 +2,23 @@ import Link from "next/link";
 import MovimientoForm from "@/components/MovimientoForm";
 import { createClient } from "@/lib/supabase/server";
 import type { Cuenta } from "@/lib/finance";
+import { crearMovimiento } from "../actions";
 
 export default async function NuevoMovimientoPage() {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("cuentas")
-    .select("id, nombre, tipo, subtipo, moneda, archivada")
-    .eq("archivada", false)
-    .order("nombre");
+  const [cuentasRes, tasasRes] = await Promise.all([
+    supabase
+      .from("cuentas")
+      .select("id, nombre, tipo, subtipo, moneda, archivada")
+      .eq("archivada", false)
+      .order("nombre"),
+    supabase.from("tasas_cambio").select("moneda, tasa"),
+  ]);
 
-  const cuentas = (data ?? []) as Cuenta[];
+  const cuentas = (cuentasRes.data ?? []) as Cuenta[];
+  const tasas = Object.fromEntries(
+    (tasasRes.data ?? []).map((t) => [t.moneda as string, Number(t.tasa)]),
+  );
   const hoy = new Date().toISOString().slice(0, 10);
 
   return (
@@ -33,7 +40,7 @@ export default async function NuevoMovimientoPage() {
           </Link>
         </div>
       ) : (
-        <MovimientoForm cuentas={cuentas} hoy={hoy} />
+        <MovimientoForm cuentas={cuentas} hoy={hoy} tasas={tasas} action={crearMovimiento} />
       )}
     </main>
   );

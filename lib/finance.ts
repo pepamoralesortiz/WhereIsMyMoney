@@ -43,6 +43,10 @@ export const ORDEN_TIPOS: TipoCuenta[] = [
 ];
 
 export const MONEDAS = ["GTQ", "USD", "EUR"];
+export const BASE_MONEDA = "GTQ";
+
+// Tipo de cambio sugerido (GTQ por 1 unidad) si no hay uno guardado.
+export const TC_DEFAULT: Record<string, number> = { USD: 7.8, EUR: 8.5 };
 
 export function money(value: number, moneda = "GTQ"): string {
   try {
@@ -72,5 +76,22 @@ export function partidasDeMovimiento(
       return { debe: cuentaB, haber: cuentaA };
     case "transferencia":
       return { debe: cuentaA, haber: cuentaB };
+  }
+}
+
+// Inverso de partidasDeMovimiento: dado el tipo y las cuentas debe (partida
+// positiva) y haber (negativa), reconstruye cuentaA/cuentaB de la UI (para editar).
+export function movimientoDesdePartidas(
+  tipo: TipoMovimiento,
+  cuentaDebe: string,
+  cuentaHaber: string,
+): { cuentaA: string; cuentaB: string } {
+  switch (tipo) {
+    case "gasto":
+      return { cuentaA: cuentaDebe, cuentaB: cuentaHaber };
+    case "ingreso":
+      return { cuentaA: cuentaHaber, cuentaB: cuentaDebe };
+    case "transferencia":
+      return { cuentaA: cuentaDebe, cuentaB: cuentaHaber };
   }
 }
