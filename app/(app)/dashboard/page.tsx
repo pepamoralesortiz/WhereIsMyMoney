@@ -130,12 +130,8 @@ export default async function DashboardPage({
                 {money(totalReal)} <span className="text-neutral-400">/ {money(totalPres)}</span>
               </span>
             </div>
-            <Barra pct={pctTotal} over={totalReal > totalPres} alto />
-            <p
-              className={`mb-4 mt-1 text-right text-xs ${
-                totalReal > totalPres ? "text-red-600 dark:text-red-400" : "text-neutral-400"
-              }`}
-            >
+            <Barra pct={pctTotal} alto />
+            <p className={`mb-4 mt-1 text-right text-xs ${textColor(pctTotal)}`}>
               {pctTotal}%{" "}
               {totalReal > totalPres
                 ? `· te pasaste ${money(totalReal - totalPres)}`
@@ -149,10 +145,13 @@ export default async function DashboardPage({
                     <div className="mb-1 flex items-baseline justify-between gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm">{r.nombre}</span>
                       <span className="text-xs tabular-nums text-neutral-500">
-                        {money(r.monto_real)} / {money(r.presupuesto)}
+                        {money(r.monto_real)} / {money(r.presupuesto)}{" "}
+                        <span className={`font-medium ${textColor(pct)}`}>
+                          {pct}%
+                        </span>
                       </span>
                     </div>
-                    <Barra pct={pct} over={r.monto_real > r.presupuesto} />
+                    <Barra pct={pct} />
                   </li>
                 );
               })}
@@ -254,7 +253,19 @@ function Fila({ label, valor }: { label: string; valor: string }) {
   );
 }
 
-function Barra({ pct, over, alto }: { pct: number; over: boolean; alto?: boolean }) {
+// Semáforo por % del presupuesto consumido.
+function barColor(pct: number) {
+  if (pct > 100) return "bg-red-500";
+  if (pct >= 85) return "bg-amber-500";
+  return "bg-teal-500";
+}
+function textColor(pct: number) {
+  if (pct > 100) return "text-red-600 dark:text-red-400";
+  if (pct >= 85) return "text-amber-600 dark:text-amber-400";
+  return "text-teal-600 dark:text-teal-400";
+}
+
+function Barra({ pct, alto }: { pct: number; alto?: boolean }) {
   const width = Math.min(100, Math.max(0, pct));
   return (
     <div
@@ -263,7 +274,7 @@ function Barra({ pct, over, alto }: { pct: number; over: boolean; alto?: boolean
       }`}
     >
       <div
-        className={`h-full rounded-full ${over ? "bg-red-500" : "bg-teal-500"}`}
+        className={`h-full rounded-full ${barColor(pct)}`}
         style={{ width: `${width}%` }}
       />
     </div>
