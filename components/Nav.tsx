@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 
 const items = [
   { href: "/dashboard", label: "Inicio" },
+  { href: "/movimientos", label: "Movim." },
+  { href: "/presupuesto", label: "Presup." },
+  { href: "/categorias", label: "Categor." },
   { href: "/cuentas", label: "Cuentas" },
-  { href: "/categorias", label: "Categorías" },
-  { href: "/movimientos", label: "Movimientos" },
 ];
 
 export default function Nav() {
@@ -23,7 +24,7 @@ export default function Nav() {
             <Link
               key={it.href}
               href={it.href}
-              className={`flex-1 px-1 py-3 text-center text-xs font-medium transition ${
+              className={`flex-1 truncate px-0.5 py-3 text-center text-[11px] font-medium leading-tight transition ${
                 active
                   ? "text-teal-600 dark:text-teal-400"
                   : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
