@@ -30,6 +30,10 @@ export default async function DashboardPage({
     ? fmt(now)
     : fmt(new Date(Date.UTC(anio, mes, 0))); // último día del mes
 
+  // Rango del mes seleccionado (para enlazar a los movimientos de una cuenta).
+  const mesDesde = fmt(new Date(Date.UTC(anio, mes - 1, 1)));
+  const mesHasta = fmt(new Date(Date.UTC(anio, mes, 0)));
+
   const prev = mes === 1 ? { anio: anio - 1, mes: 12 } : { anio, mes: mes - 1 };
   const next = mes === 12 ? { anio: anio + 1, mes: 1 } : { anio, mes: mes + 1 };
 
@@ -218,13 +222,14 @@ export default async function DashboardPage({
                 </div>
                 <dl className="space-y-1 border-l-2 border-neutral-100 pl-3 dark:border-neutral-800">
                   {porTipo(sec.tipo).map((r) => (
-                    <div
+                    <Link
                       key={r.cuenta_id}
-                      className="flex items-center justify-between text-sm text-neutral-600 dark:text-neutral-300"
+                      href={`/movimientos?cuenta=${r.cuenta_id}&desde=${mesDesde}&hasta=${mesHasta}`}
+                      className="-mx-1 flex items-center justify-between rounded px-1 text-sm text-neutral-600 transition active:bg-neutral-50 dark:text-neutral-300 dark:active:bg-neutral-900"
                     >
                       <span className="min-w-0 flex-1 truncate">{r.nombre}</span>
                       <span className="tabular-nums">{money(Number(r.saldo))}</span>
-                    </div>
+                    </Link>
                   ))}
                 </dl>
               </div>
