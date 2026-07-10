@@ -63,7 +63,7 @@ export default async function CuentasPage() {
                   key={c.id}
                   className="flex items-center justify-between gap-2 px-4 py-3"
                 >
-                  <Link href={`/cuentas/${c.id}/editar`} className="min-w-0 flex-1">
+                  <Link href={`/movimientos?cuenta=${c.id}`} className="min-w-0 flex-1">
                     <p className="truncate text-sm">{c.nombre}</p>
                     <p className="text-xs text-neutral-400">
                       {c.moneda}
