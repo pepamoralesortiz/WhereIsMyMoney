@@ -181,7 +181,7 @@ export default async function MovimientosPage({
                     </Link>
                     <span
                       className={`text-sm font-medium tabular-nums ${
-                        val < 0 ? "text-red-600 dark:text-red-400" : "text-teal-600 dark:text-teal-400"
+                        val < 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
                       }`}
                     >
                       {val > 0 ? "+" : ""}
